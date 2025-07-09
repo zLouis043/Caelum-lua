@@ -1,6 +1,6 @@
 # The Caelum Framework
 Caelum-Lua is a useful framework that adds to lua a structured and strongly typed aspect. 
-The main object of the framework is to give programmers a secure, structured, and strongly-typed architecture to add to their lua scripts. 
+The main objectivr of the framework is to give programmers a secure, structured, and strongly-typed architecture to add to their lua scripts. 
 Originally it was created to make possible embedding lua in a custom engine, it was not a difficult task if not for the lack of types and advanced structures in lua 
 that made automatic reflection and an automatic inspector system for the ui possible. 
 
