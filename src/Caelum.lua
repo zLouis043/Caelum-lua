@@ -1861,7 +1861,23 @@ function Caelum.array(element_type, default_values)
     return field
 end
 
---[[ NEW: Creates a field for a map of a specific key and value type. ]]
+function Caelum.Array(element_type, initial_values)
+    local element_type_info = {
+        name = element_type.__type_name or tostring(element_type),
+        constructor = element_type
+    }
+
+    local proxy = create_array_proxy(
+        initial_values or {},
+        element_type_info.constructor,
+        element_type_info.name
+    )
+
+    return proxy
+end
+
+
+--[[ Creates a field for a map of a specific key and value type. ]]
 function Caelum.map(key_type, value_type, default_values)
     local field = base_field("map", default_values or {})
 
@@ -1899,6 +1915,28 @@ function Caelum.map(key_type, value_type, default_values)
 
     return field
 end
+
+function Caelum.Map(key_type, value_type, initial_values)
+    local key_type_info = {
+        name = key_type.__type_name or tostring(key_type),
+        constructor = key_type
+    }
+    local value_type_info = {
+        name = value_type.__type_name or tostring(value_type),
+        constructor = value_type
+    }
+
+    local proxy = create_map_proxy(
+        initial_values or {},
+        key_type_info.constructor,
+        key_type_info.name,
+        value_type_info.constructor,
+        value_type_info.name
+    )
+
+    return proxy
+end
+
 
 --------------------------------------------------------------------------------
 -- REFLECTION AND UTILITY FUNCTIONS
@@ -2066,6 +2104,9 @@ function Caelum.get_name(instance)
     return class_table and class_table.__name or "Unknown"
 end
 
+
+-- TODO: needs to be revised, this was an old implementation for the cpp api, now it needs to be 
+--       made consistent with the rest of the framework
 function Caelum.create_instance(typeName, init_values)
     local global_type = _G[typeName]
     if global_type and global_type.new then
@@ -2078,5 +2119,20 @@ function Caelum.create_instance(typeName, init_values)
     error("Type not found: " .. typeName)
 end
 
+--------------------------------------------------------------------------------
+-- Language Additions 
+--------------------------------------------------------------------------------
+
+-- found in the forum https://devforum.roblox.com/t/switch-case-in-lua/1758606/2 @Shoop goldenstein64
+function switch(value)
+    return function(cases)
+        local case = cases[value] or cases.default
+        if case then
+            return case(value)
+        else
+            error(string.format("Unhandled case (%s)", value), 2)
+        end
+    end
+end
 
 return Caelum

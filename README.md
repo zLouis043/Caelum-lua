@@ -14,7 +14,7 @@ $ luarocks install caelum
 
 Or by copy-pasting in your project the file [Caelum.lua](./src/Caelum.lua) in the ```src/``` folder
 
-# Example 
+# Examples 
 
 Class creation: 
 

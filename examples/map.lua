@@ -47,4 +47,14 @@ instance.complex_map:forEach(function(value, key)
     print("Key: {" .. key.id .. ", " .. tostring(key.is_valid) .. "} Value: {" .. value.integer .. ", " .. value.str .. "}")
 end)
 
-instance.complex_map[1] = {}
+local map = c.Map(c.String, c.Int, {  -- This differs from the c.map because it declares a local variable of type Map<T> 
+    ["One"] = 1,
+    ["Two"] = 2,
+    ["Three"] = 3
+})
+
+map:forEach(function(key, value)
+    print(key, value)
+end)
+
+map["One"] = "Ho" -- Expected error

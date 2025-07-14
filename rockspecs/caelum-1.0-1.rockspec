@@ -18,6 +18,6 @@ dependencies = {
 build = {
   type = "builtin",
   modules = {
-    ["Caelum"] = "src/Caelum.lua"
+    ["Caelum"] = "./src/Caelum.lua"
   }
 }
