@@ -1,6 +1,5 @@
 -- The main table for the Caelum library..
 local Caelum = {}
-
 -- A cache for array metatables. This helps to avoid recreating metatables for the same
 -- array type, improving performance. The metatables are weakly referenced ('v' mode),
 -- allowing them to be garbage collected if they are no longer in use.
@@ -1328,15 +1327,22 @@ local function create_validating_index(class_table)
         if data_storage and data_storage[field_name] ~= nil then
           return data_storage[field_name]
         end
-        
-        local class_method = rawget(class_table, field_name)
-        if class_method ~= nil then
-            return class_method
-        end
-        
-        local simple_fields = rawget(class_table, "__simple_fields__")
-        if simple_fields and simple_fields[field_name] ~= nil then
-            return simple_fields[field_name]
+
+        local current_class = class_table
+        while current_class do
+
+            local class_method = rawget(current_class, field_name)
+            if class_method ~= nil then
+                return class_method
+            end
+            
+            local simple_fields = rawget(current_class, "__simple_fields__")
+            if simple_fields and simple_fields[field_name] ~= nil then
+                return simple_fields[field_name]
+            end
+            
+            current_class = rawget(current_class, "__base_class") and 
+                          rawget(current_class, "__base_class").__class_table
         end
         
         -- Field not found.
@@ -1447,9 +1453,13 @@ local function instance_constructor(class_table, init_values_from_user)
         end
     end
 
-    local init_func = rawget(class_table, "__init")
-    if init_func and type(init_func) == "function" then
-        init_func(instance, init_values_from_user) 
+    local current_class = class_table
+    while current_class do
+        local init_func = rawget(current_class, "__init")
+        if init_func and type(init_func) == "function" then
+            init_func(instance, init_values_from_user)
+        end
+        current_class = rawget(current_class, "__base_class") and rawget(current_class, "__base_class").__class_table
     end
 
     local validate_func = rawget(class_table, "__validate")
@@ -1582,7 +1592,7 @@ function Caelum.field(type_definition, default_value)
         end
 
         error("Caelum.field: Unsupported primitive type or unregistered class/struct name: '" .. tostring(type_definition) .. "'")
-
+        
     elseif type(type_definition) == "table" then
         local caelum_type = type_definition.__caelum_type
 
@@ -1727,16 +1737,50 @@ function Caelum.class(name, base_class)
         }
 
         if base_class then
+
+            if base_class.__is_caelum_type ~= true then 
+                error("Base class given is not a Caelum Class")
+            end
+
             setmetatable(class_table, { __index = base_class.__class_table })
 
-            class_table.super = base_class.__init or function(self, init_values) end
+            --class_table.super = base_class.__init or function(self, init_values) end
             
+            if base_class.__class_table.__init then
+                class_table.super = function(self, init_values)
+                    base_class.__class_table.__init(self, init_values)
+                end
+            else
+                class_table.super = function(self, init_values) end
+            end
+
             for k, v in pairs(base_class.__class_table.__fields__) do
                 class_table.__fields__[k] = deep_copy(v)
+            end
+
+            -- Copy simple fields (methods and non-Caelum fields) from base class
+            for k, v in pairs(base_class.__class_table.__simple_fields__ or {}) do
+                if not class_table.__simple_fields__[k] then
+                    class_table.__simple_fields__[k] = deep_copy(v)
+                end
+            end
+
+            -- Copy methods from base class
+            for k, v in pairs(base_class.__class_table) do
+                if not class_table[k] and type(v) == "function" and 
+                   k ~= "__index" and k ~= "__newindex" and 
+                   k ~= "__fields__" and k ~= "__simple_fields__" then
+                    class_table[k] = v
+                end
             end
         end
 
         process_fields(name, class_table, fields_definition)
+
+        rawset(class_table, "instanceof", function(self, Class)
+            return Caelum.instanceof(self, Class)
+        end)
+
 
         if type(fields_definition) == "table" then
             if fields_definition.__init then class_table.__init = fields_definition.__init end
@@ -2081,6 +2125,85 @@ function Caelum.get_all_categories(instance)
 end
 
 --[[
+Checks if the given instance is an instance of a Caelum Class
+@param instance (table) The instance to check
+@param Class (table|string) The supposed Class of the instance
+@return (boolean)  
+]]
+function Caelum.instanceof(instance, Class)
+    if type(instance) ~= "table" then return false end
+    local instance_mt = getmetatable(instance)
+    if not instance_mt then return false end
+
+    local instance_class_table = rawget(instance_mt, "__class_table")
+    if not instance_class_table then return false end
+
+    if type(Class) == "string" then
+        Class = Caelum._type_registry[Class] or _G[Class]
+        if not Class then return false end
+    end
+    
+    if type(Class) ~= "table" or not Class.__is_caelum_type or not Class.__class_table then
+        return false
+    end
+    
+    local target_class_table = Class.__class_table
+    
+    local current_class = instance_class_table
+    
+    while current_class do
+        if current_class == target_class_table then
+            return true
+        end
+        
+        local base_class = rawget(current_class, "__base_class")
+        current_class = base_class and base_class.__class_table
+    end
+    
+    return false
+end
+
+--[[
+Checks if the given class is a subclass of another Caelum Class
+@param instance (table) The class to check
+@param Class (table|string) The base Class
+@return (boolean)  
+]]
+function Caelum.issubclass(derived_class, base_class_or_name)
+    if type(derived_class) ~= "table" or not derived_class.__is_caelum_type or not derived_class.__caelum_class_table_type == "class" then
+        return false
+    end
+
+    local target_base_class_table
+
+    if type(base_class_or_name) == "string" then
+        target_base_class_table = Caelum._type_registry[base_class_or_name] or _G[base_class_or_name]
+        if not target_base_class_table then
+            return false
+        end
+    else
+        target_base_class_table = base_class_or_name
+    end
+
+    if type(target_base_class_table) ~= "table" or not target_base_class_table.__is_caelum_type or not target_base_class_table.__caelum_class_table_type == "class" then
+        return false
+    end
+    
+    local current_class = derived_class
+    
+    while current_class do
+        if current_class == target_base_class_table then
+            return true
+        end
+        local base_class = rawget(rawget(current_class, "__class_table"), "__base_class")
+        
+        current_class = base_class
+    end
+    
+    return false
+end
+
+--[[
 Gets the Caelum type of an instance ("struct", "class", or "unknown").
 
 @param instance (table) The object to inspect.
@@ -2133,6 +2256,132 @@ function switch(value)
             error(string.format("Unhandled case (%s)", value), 2)
         end
     end
+end
+
+Caelum.Error = Caelum.class("Error"){
+    msg = Caelum.string("Unknown message"),
+
+    __init = function(self, init_values) 
+        if init_values and init_values[1] then
+            self.msg = init_values[1]
+        elseif init_values and init_values.msg then 
+            self.msg = init_values.msg
+        end
+    end,
+
+    __tostring = function(self)
+        return self:what()
+    end,
+
+    what = function(self)
+        return string.format("ERROR: %s", self.msg)
+    end,
+}
+
+-- Function to throw an error 
+function throw(err)
+    local stack = debug.traceback("", 2)
+    error({error = err, stack = stack})
+end
+
+
+
+-- Try-Catch-Finally block chain
+
+local function find_handler(catches, error_obj)
+    if not error_obj then return nil end
+
+    if type(error_obj) == "string" then
+        return nil
+    end
+
+    local error_mt = debug.getmetatable(error_obj)
+    local error_type_name = error_mt.__class_table.__name
+    
+    local first_superclass_catch  = nil
+
+    for _, catch in ipairs(catches) do
+        if catch.exact_type and catch.exact_type == error_type_name then
+            return catch
+        end
+        if catch.type and error_obj:instanceof(catch.type) then
+            if not first_superclass_catch  then
+                first_superclass_catch  = catch
+            end
+        end
+    end
+
+    if first_superclass_catch  then 
+        return first_superclass_catch 
+    end
+
+    return nil
+end
+
+function try(try_func)
+    local handler = {
+        _error = nil,
+        _stack = nil,
+        _catches = {},
+        _finally = nil,
+        _generic_catch = nil
+    }
+
+    local success, err = xpcall(try_func, debug.traceback)
+    if not success then
+        handler._error = err.error
+        handler._stack = err.stack
+    end
+
+    function handler:catch(error_type, fn)
+
+        if type(error_type) == "function" and not fn then
+            if self._generic_catch then
+                error("Only one generic catch block allowed")
+            end
+            self._generic_catch = { fn = error_type }
+            return self
+        end
+
+        if type(error_type) ~= "table" or not error_type.__type_name then
+            error("Catch type must be a Caelum class")
+        end
+
+        if not Caelum.issubclass(error_type, Caelum.Error) then
+            error("Error type must be of type Caelum.Error or a derived class")
+        end
+
+        table.insert(self._catches, {
+            type = error_type,
+            fn = fn,
+            exact_type = error_type.__type_name
+        })
+
+        return self
+    end
+
+    function handler:finally(fn)
+        self._finally = fn
+        self:_execute()
+        return self
+    end
+
+    function handler:_execute()
+        if self._error then
+            local catch = find_handler(self._catches, self._error) or
+                         self._generic_catch
+            if catch then
+                catch.fn(self._error)
+            else
+                error(self._error)
+            end
+
+            print(self._stack)
+        end
+        if self._finally then self._finally() end
+    end
+
+    return handler
 end
 
 return Caelum

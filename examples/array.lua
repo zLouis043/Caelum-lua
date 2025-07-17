@@ -27,4 +27,3 @@ arr:forEach(function(value)
 end)
 
 print("Arr var length: " .. arr.length)
-
