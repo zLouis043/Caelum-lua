@@ -24,6 +24,7 @@ Caelum adds what Lua is missing — without changing what makes Lua great.
 - 🔒 **Strong Type System** — Type checking with metatables and proxies.
 - 🧩 **Advanced Data Types** — `Array`, `Map`, all fully type-checked.
 - 📝 **Metadata Support** — Title, description, range, and custom metadata.
+- 💾 **Serialization & Deserialization** — Easily convert objects to pure lua tables and restore them.
 - ✅ **Validators & Events** — Automatic on-change triggers and custom validators.
 - ↔️ **Language Features** — `switch`, `try-catch-finally`, and structured error handling.
 
@@ -37,12 +38,14 @@ Caelum adds what Lua is missing — without changing what makes Lua great.
 $ luarocks install caelum
 ```
 
-> ⚠️ NOTE:  The luarock version might be behind the github version and some features or bug fixes can be missing on the luarocks module 
+> ⚠️ Note: The LuaRocks version may lag behind GitHub. For the latest updates, clone directly from GitHub.
 
 #### 📝 **Manual**:
 - Simply copy the [Caelum.lua](./src/Caelum.lua) file into your project’s ``src/`` folder.
 
 ## 💡 Simple Examples 
+
+Other examples for every feature of the framework can be found in the ```examples/``` folder
 
 #### 📦 Class creation: 
 
@@ -144,24 +147,39 @@ try(function()
     end
 end)
 :catch(TestError, function(err)
-
     print("TestError: " .. err:what() .. " with error code: " .. err:code())
 
 end)
 :catch(function(err)
-
     print("General catch:" .. err:what())
-
 end)
 :finally(function()
-
     print("This should be called at the end!")
-
 end)
 
 ```
 
-Other examples for every feature of the framework can be found in the ```examples/``` folder
+#### 💾 Serialization/Deserialization:
+
+```lua
+local c = require "Caelum"
+
+MyClass = c.class "MyClass" {
+    val = c.int(50),
+
+    __init = function(self, init_values)
+        if type(init_values) == "number" then
+            self.val = init_values
+        end
+    end
+}
+
+local instance = MyClass:new(20)
+
+local serialized_table = c.serialize(instance)
+local reconstructed_instance = c.deserialize(serialized_table)
+
+```
 
 ## 🤝 Contributions
 
@@ -176,3 +194,7 @@ Caelum is built to be open and extensible.
 ## 🔗 Links 
 
 Link to the **luarocks module page** [here](https://luarocks.org/modules/inluiz/caelum)
+
+## 📜 License
+
+Caelum is released under the MIT License.
