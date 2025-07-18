@@ -2243,6 +2243,126 @@ function Caelum.create_instance(typeName, init_values)
 end
 
 --------------------------------------------------------------------------------
+-- Serialization / Deserialization 
+--------------------------------------------------------------------------------
+
+--[[
+Serialize an instance of a Caelum type or a table in a pure lua-table. 
+It handles nested types, array, maps and cycle-refs.
+
+@param instance (*) The object to serialize.
+@return (table) Pure lua Table representation of the instance.
+]]
+function Caelum.serialize(instance)
+    local seen = {}
+
+    local function serialize_recursive(value)
+        if type(value) ~= "table" then
+            return value
+        end
+
+        if seen[value] then
+            return { __is_cycle = true, ref = tostring(value) }
+        end
+        seen[value] = true
+
+        local result = {}
+        
+        if rawget(value, "__array_data__") then
+            local raw_array = rawget(value, "__array_data__")
+            for i = 1, #raw_array do
+                table.insert(result, serialize_recursive(raw_array[i]))
+            end
+            
+        elseif rawget(value, "__map_data__") then
+            local raw_map = rawget(value, "__map_data__")
+            for k, v in pairs(raw_map) do
+                result[serialize_recursive(k)] = serialize_recursive(v)
+            end
+
+        elseif Caelum.get_name(value) ~= "Unknown" then
+            result.__caelum_type_name = Caelum.get_name(value)
+            result.data = {}
+            
+            local fields = Caelum.get_all_fields(value)
+            for field_name, _ in pairs(fields) do
+                result.data[field_name] = serialize_recursive(value[field_name])
+            end
+            
+        else
+            for k, v in pairs(value) do
+                result[serialize_recursive(k)] = serialize_recursive(v)
+            end
+        end
+        
+        seen[value] = nil
+        return result
+    end
+
+    return serialize_recursive(instance)
+end
+
+--[[
+Deserialize a pure lua table into a Caelum instance.
+Reconstruct the object through the field metadata.
+
+@param data (table) The table to deserialize.
+@return (*) The constructed Caelum instance.
+@error If the type is not a Caelum Type.
+]]
+function Caelum.deserialize(data)
+
+    local function deserialize_recursive(sub_data)
+        if type(sub_data) ~= "table" then
+            return sub_data
+        end
+        
+        if sub_data.__caelum_type_name then
+            local type_name = sub_data.__caelum_type_name
+            local constructor = Caelum._type_registry[type_name]
+
+            if not constructor or not constructor.new then
+                error("Deserialization failed: Type '" .. type_name .. "' is not registered or has no .new() method.")
+            end
+
+            local init_values = {}
+            if sub_data.data then
+                for k, v in pairs(sub_data.data) do
+                    init_values[k] = deserialize_recursive(v)
+                end
+            end
+            
+            return constructor.new(init_values)
+        else
+            local result = {}
+            local is_array_like = true
+            local max_index = 0
+            for k, _ in pairs(sub_data) do
+                if type(k) ~= "number" or k < 1 or k % 1 ~= 0 then
+                    is_array_like = false
+                    break
+                end
+                max_index = math.max(max_index, k)
+            end
+            if #sub_data ~= max_index then is_array_like = false end
+
+            if is_array_like then
+                for i = 1, #sub_data do
+                    table.insert(result, deserialize_recursive(sub_data[i]))
+                end
+            else
+                 for k, v in pairs(sub_data) do
+                    result[deserialize_recursive(k)] = deserialize_recursive(v)
+                end
+            end
+            return result
+        end
+    end
+
+    return deserialize_recursive(data)
+end
+
+--------------------------------------------------------------------------------
 -- Language Additions 
 --------------------------------------------------------------------------------
 
@@ -2259,7 +2379,8 @@ function switch(value)
 end
 
 Caelum.Error = Caelum.class("Error"){
-    msg = Caelum.string("Unknown message"),
+    msg = Caelum.string("Unknown message").nullable(),
+    stack_trace_string = Caelum.string("").nullable(),
 
     __init = function(self, init_values) 
         if init_values and init_values[1] then
@@ -2276,15 +2397,46 @@ Caelum.Error = Caelum.class("Error"){
     what = function(self)
         return string.format("ERROR: %s", self.msg)
     end,
+
+    stack_trace = function(self)
+        return self.stack_trace_string
+    end
 }
 
+local try_catch_stack = {}
+
 -- Function to throw an error 
-function throw(err)
+function throww(err)
     local stack = debug.traceback("", 2)
-    error({error = err, stack = stack})
+    if #try_catch_stack > 0 then
+        err.stack_trace_string = stack
+        error({error = err, is_caelum_error = true})
+    else
+        if type(err) == "table" and getmetatable(err) and getmetatable(err).__class_table then
+            error(err:what().."\n"..stack, 2)
+        else
+            error(tostring(err).."\n"..stack, 2)
+        end
+    end
 end
 
-
+function throw(err)
+    local stack = debug.traceback("", 2)
+    if #try_catch_stack > 0 then
+        -- Se l'errore non è una tabella o non ha metatable, convertilo in un Error di Caelum
+        if type(err) ~= "table" or not debug.getmetatable(err) then
+            err = Caelum.Error:new({msg = tostring(err), stack_trace_string = stack})
+        end
+        err.stack_trace_string = stack
+        error({error = err, is_caelum_error = true})
+    else
+        if type(err) == "table" and getmetatable(err) and getmetatable(err).__class_table then
+            error(err:what().."\n"..stack, 2)
+        else
+            error(tostring(err).."\n"..stack, 2)
+        end
+    end
+end
 
 -- Try-Catch-Finally block chain
 
@@ -2321,16 +2473,30 @@ end
 function try(try_func)
     local handler = {
         _error = nil,
-        _stack = nil,
         _catches = {},
         _finally = nil,
-        _generic_catch = nil
+        _generic_catch = nil,
+        _parent_handler = try_catch_stack[#try_catch_stack] or nil,
+        _executed = false,
+        _is_nested = #try_catch_stack > 0,
+        _in_catch_block = false
     }
 
+    table.insert(try_catch_stack, handler)
+
     local success, err = xpcall(try_func, debug.traceback)
+
+    table.remove(try_catch_stack)
+
     if not success then
-        handler._error = err.error
-        handler._stack = err.stack
+        --handler._error = err.error
+        --handler._stack = err.stack
+        if type(err) == "table" and err.is_caelum_error then
+            handler._error = err.error
+        else
+            -- Se non è un errore Caelum, convertilo in uno
+            handler._error = Caelum.Error:new({msg = tostring(err), stack_trace_string = debug.traceback("", 2)})
+        end
     end
 
     function handler:catch(error_type, fn)
@@ -2362,23 +2528,66 @@ function try(try_func)
 
     function handler:finally(fn)
         self._finally = fn
-        self:_execute()
+        if not handler._executed then
+            handler:_execute()
+        end
+        return self
+    end
+
+    function handler:close()
+        if not handler._executed then
+            handler:_execute()
+        end
         return self
     end
 
     function handler:_execute()
+
+        if self._executed then return end
+        self._executed = true
+
         if self._error then
             local catch = find_handler(self._catches, self._error) or
                          self._generic_catch
             if catch then
-                catch.fn(self._error)
-            else
-                error(self._error)
-            end
 
-            print(self._stack)
+                self._in_catch_block = true
+                local success, catch_err = pcall(function()
+                    catch.fn(self._error)
+                end)
+                self._in_catch_block = false
+
+                if not success then
+                    if self._parent_handler and not self._parent_handler._executed then
+                        self._parent_handler._error = Caelum.Error:new({msg = tostring(catch_err), stack_trace_string = debug.traceback("", 2)})
+                        self._parent_handler:_execute()
+                    else
+                        error({error = Caelum.Error:new({msg = tostring(catch_err), stack_trace_string = debug.traceback("", 2)}), 
+                            is_caelum_error = true})
+                    end
+                end
+
+            else
+                --error({error = self._error, stack = self._stack})
+                if self._is_nested and self._parent_handler and not self._in_catch_block then
+                    error({error = self._error, is_caelum_error = true})
+                else
+                    
+                    if type(self._error) == "table" and getmetatable(self._error) and getmetatable(self._error).__class_table then
+                        error(self._error:what().."\n"..self._error:stack_trace(), 2)
+                    else
+                        error(tostring(self._error).."\n"..self._error:stack_trace(), 2)
+                    end
+                end
+            end
         end
-        if self._finally then self._finally() end
+        if self._finally then
+            local success, finally_err = pcall(self._finally)
+            if not success and self._parent_handler and not self._parent_handler._executed then
+                self._parent_handler._error = Caelum.Error:new({msg = tostring(finally_err), stack_trace_string = debug.traceback("", 2)})
+                self._parent_handler:_execute()
+            end
+        end
     end
 
     return handler

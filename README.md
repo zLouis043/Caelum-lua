@@ -1,22 +1,50 @@
-# The Caelum Framework
-Caelum-Lua is a useful framework that adds to lua a structured and strongly typed aspect. 
-The main object of the framework is to give programmers a secure, structured, and strongly-typed architecture to add to their lua scripts. 
-Originally it was created to make possible embedding lua in a custom engine, it was not a difficult task if not for the lack of types and advanced structures in lua 
-that made automatic reflection and an automatic inspector system for the ui possible. 
+# 🌌 The Caelum Framework
 
-# Installation 
+[![Lua](https://img.shields.io/badge/Lua-5.1-blue)](https://www.lua.org/)
+[![Luarocks](https://img.shields.io/luarocks/v/inluiz/caelum)](https://luarocks.org/modules/inluiz/caelum)
+![Last Commit](https://img.shields.io/github/last-commit/zLouis043/Caelum-lua)
 
-The framework can be easely installed with luarocks with the command
+Caelum-Lua is your go-to framework for structured, safe, and strongly-typed Lua scripting — without giving up the simplicity and speed of Lua.
+
+Originally crafted to embed Lua into custom engines with reflection and automatic UI inspectors, Caelum has grown into a complete toolset for the Lua Language
+
+## ✨ Why Caelum?
+
+✅ **Safer code** — catch type errors early  
+✅ **Structured design** — Classes, Structs, Enums, Arrays, Maps  
+✅ **Modern features** — Switch-case, try-catch, custom errors  
+✅ **Embed-friendly** — Designed for engine integrations & live validation  
+
+Caelum adds what Lua is missing — without changing what makes Lua great.
+
+## 🛠️ Features at a Glance
+
+- 🧱 **OOP System** — `class`, `struct`, `inheritance` with type-safe fields and methods.
+- 🏷️ **Enums** — Clean enum handling with index/next helpers.
+- 🔒 **Strong Type System** — Type checking with metatables and proxies.
+- 🧩 **Advanced Data Types** — `Array`, `Map`, all fully type-checked.
+- 📝 **Metadata Support** — Title, description, range, and custom metadata.
+- ✅ **Validators & Events** — Automatic on-change triggers and custom validators.
+- ↔️ **Language Features** — `switch`, `try-catch-finally`, and structured error handling.
+
+## ⚡ Installation 
+
+#### 🚀 **Via LuaRocks**:
+
+- The framework can be easily installed with luarocks with the command
 
 ```sh
 $ luarocks install caelum
 ```
 
-Or by copy-pasting in your project the file [Caelum.lua](./src/Caelum.lua) in the ```src/``` folder
+> ⚠️ NOTE:  The luarock version might be behind the github version and some features or bug fixes can be missing on the luarocks module 
 
-# Examples 
+#### 📝 **Manual**:
+- Simply copy the [Caelum.lua](./src/Caelum.lua) file into your project’s ``src/`` folder.
 
-Class creation: 
+## 💡 Simple Examples 
+
+#### 📦 Class creation: 
 
 ```lua
 local c = require "Caelum"
@@ -37,23 +65,7 @@ print(instance.val) -- Output: 20
 
 ```
 
-Structs: 
-
-```lua
-local c = require "Caelum"
-
-MyStruct = c.struct "MyClass" {
-    val = c.int(50),
-    msg = c.string("")
-}
-
-local instance = MyStruct:new({val = 20, msg = "Hello World"})
-
-print(instance.val) -- Output: 20
-print(instance.msg) -- Output: Hello World
-```
-
-Enum: 
+#### 🏷️ Enum: 
 
 ```lua
 local c = require "Caelum"
@@ -77,7 +89,7 @@ print(MyEnum.get_next(instance.val))  -- Output: THREE
 instance.val = "FIVE"
 ```
 
-Array:
+#### 🧩 Array:
 
 ```lua
 local c = require "Caelum"
@@ -103,12 +115,64 @@ instance.arr:pop()
 print("Array len at end: " .. instance.arr.length)  -- Output: Array len at end: 5
 ```
 
+#### ❌ Try-Catch: 
+
+```lua
+local TestError = c.class("TestError", c.Error){
+    errCode = c.int(0),
+
+    __init = function(self, init_values)
+        if init_values then 
+            self.msg = init_values[1] or self.msg
+            self.errCode = init_values[2] or self.errCode
+        end
+    end,
+
+    what = function(self) -- This is an overriden function from the Error base class
+        return string.format("ERROR: %s", self.msg)
+    end,
+
+    code = function(self)
+        return self.errCode
+    end
+}
+
+try(function()
+    local var = 5
+    if var ~= 10 then
+        throw(TestError:new({"Testing Error System", 3}))
+    end
+end)
+:catch(TestError, function(err)
+
+    print("TestError: " .. err:what() .. " with error code: " .. err:code())
+
+end)
+:catch(function(err)
+
+    print("General catch:" .. err:what())
+
+end)
+:finally(function()
+
+    print("This should be called at the end!")
+
+end)
+
+```
+
 Other examples for every feature of the framework can be found in the ```examples/``` folder
 
-# Contributions
+## 🤝 Contributions
 
-Dont hesitate to make issues and pull-requests, I am open to new features and bug-fixes.
+Caelum is built to be open and extensible.
 
-# Links 
+🟢 Found a bug?
+🟣 Have an idea?
+🟠 Want to contribute?
+
+👉 Issues and pull requests are welcome! Let’s make Lua structured together.
+
+## 🔗 Links 
 
 Link to the **luarocks module page** [here](https://luarocks.org/modules/inluiz/caelum)

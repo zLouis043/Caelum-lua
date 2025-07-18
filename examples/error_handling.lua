@@ -14,6 +14,10 @@ local TestError = c.class("TestError", c.Error){
         return string.format("ERROR: %s", self.msg)
     end,
 
+    stack_trace = function(self)
+        return "CUSTOM STACK TRACE: " .. self.stack_trace_string 
+    end,
+
     code = function(self)
         return self.errCode
     end
@@ -33,6 +37,18 @@ local Test  = c.class("Test") {
 
 try(function()
     local var = 5
+
+    try(function() 
+        print("Entering nested try")
+
+        throw(c.Error:new({msg = "Nested error"}))
+
+    end):catch(function(err) 
+        print("Nested catch with error: " .. err:what())
+    end):finally(function() 
+        print("Nested finally!")
+    end):close()
+
     if var ~= 10 then
         throw(DerivedError:new({"Testing Error System", 3}))
     end
@@ -41,23 +57,19 @@ end)
     print("TestError: " .. err:what() .. " with error code: " .. err:code())
 end)
 :catch(DerivedError, function(err)
-    print("DerivedError: " .. err:what() .. " with error code: " .. err:code())
-
-    -- TODO: NESTED TRY-CATCHES 
+    print("DerivedError: " .. err:what() .. " with error code: " .. err:code() .. "\n\t" .. err:stack_trace())
+ 
     try(function() 
         print("Nested try-catch") 
-        throw(TestError:new()) 
+        throw(c.Error:new({msg = "Second nested try catch"})) 
     end)
     :catch(function(err)
-        print("Nested General catch:" .. err:what())
-    end)
+        print("Nested General catch: " .. err:what() .. " " .. err:stack_trace())
+    end):finally(function() print("Finally Nested Catch!") end)
 
 end)
 :catch(function(err)
     print("General catch:" .. err:what())
-end)
-:finally(function()
-    print("This should be called at the end!")
-end)
+end):close()
 
 try(function() throw(TestError:new()) end):catch(Test, function(err) print(err:what()) end) -- this should fail because Test is not a class derived from Caelum.Error

@@ -1,4 +1,5 @@
 local c = require "Caelum"
+local inspect = require "inspect"
 
 MyStruct = c.struct "MyStruct" {
     val = c.int(50),
