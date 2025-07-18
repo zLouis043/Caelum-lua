@@ -2242,6 +2242,77 @@ function Caelum.create_instance(typeName, init_values)
     error("Type not found: " .. typeName)
 end
 
+function Caelum.inspect(value, options)
+    options = options or {}
+    local depth = options.depth or math.huge
+    local indent = options.indent or "  "
+    local current_indent = options.current_indent or ""
+    local seen = options.seen or {}
+
+    if type(value) == "table" then
+        if seen[value] then
+            return seen[value]
+        end
+    end
+
+    local typ = type(value)
+
+    if typ == "string" then
+        return string.format("%q", value)
+    elseif typ == "table" and depth > 0 then
+        if next(value) == nil then
+            return "{}"
+        end
+
+        seen[value] = "{"
+
+        local new_indent = current_indent .. indent
+        local items = {}
+
+        local i = 1
+        while value[i] ~= nil do
+            table.insert(items, new_indent .. Caelum.inspect(value[i], {
+                depth = depth - 1,
+                indent = indent,
+                current_indent = new_indent,
+                seen = seen
+            }))
+            i = i + 1
+        end
+
+        for k, v in pairs(value) do
+            if type(k) ~= "number" or k < 1 or k >= i or math.floor(k) ~= k then
+                local key
+                if type(k) == "string" and string.match(k, "^[%a_][%a%d_]*$") then
+                    key = k
+                else
+                    key = "[" .. Caelum.inspect(k, {
+                        depth = depth - 1,
+                        indent = indent,
+                        current_indent = new_indent,
+                        seen = seen
+                    }) .. "]"
+                end
+
+                table.insert(items, new_indent .. key .. " = " .. Caelum.inspect(v, {
+                    depth = depth - 1,
+                    indent = indent,
+                    current_indent = new_indent,
+                    seen = seen
+                }))
+            end
+        end
+
+        seen[value] = "{\n" .. table.concat(items, ",\n") .. "\n" .. current_indent .. "}"
+        return seen[value]
+    elseif typ == "table" then
+        return "{...}" 
+    else
+        return tostring(value)
+    end
+end
+
+
 --------------------------------------------------------------------------------
 -- Serialization / Deserialization 
 --------------------------------------------------------------------------------
