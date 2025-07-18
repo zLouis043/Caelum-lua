@@ -72,4 +72,4 @@ end)
     print("General catch:" .. err:what())
 end):close()
 
-try(function() throw(TestError:new()) end):catch(Test, function(err) print(err:what()) end) -- this should fail because Test is not a class derived from Caelum.Error
+try(function() throw(TestError:new()) end):catch(Test, function(err) print(err:what()) end):close() -- this should fail because Test is not a class derived from Caelum.Error
