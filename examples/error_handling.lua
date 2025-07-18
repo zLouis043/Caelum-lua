@@ -1,5 +1,9 @@
 local c = require "Caelum"
 
+-------------------------------------------------------------------------
+-- ERROR DERIVED CLASSES
+-------------------------------------------------------------------------
+
 local TestError = c.class("TestError", c.Error){
     errCode = c.int(0),
 
@@ -14,7 +18,7 @@ local TestError = c.class("TestError", c.Error){
         return string.format("ERROR: %s", self.msg)
     end,
 
-    stack_trace = function(self)
+    stack_trace = function(self) -- This is an overriden function from the Error base class
         return "CUSTOM STACK TRACE: " .. self.stack_trace_string 
     end,
 
@@ -35,6 +39,10 @@ local Test  = c.class("Test") {
     var = c.int(4)
 }
 
+-------------------------------------------------------------------------
+-- TRY-CATCH with nested try-catches
+-------------------------------------------------------------------------
+
 try(function()
     local var = 5
 
@@ -47,7 +55,7 @@ try(function()
         print("Nested catch with error: " .. err:what())
     end):finally(function() 
         print("Nested finally!")
-    end):close()
+    end)
 
     if var ~= 10 then
         throw(DerivedError:new({"Testing Error System", 3}))
@@ -71,5 +79,34 @@ end)
 :catch(function(err)
     print("General catch:" .. err:what())
 end):close()
+
+-------------------------------------------------------------------------
+-- TRY-CATCH on general errors
+-------------------------------------------------------------------------
+
+MyClass = c.class "MyClass" {
+    val = c.int(50),
+
+    __init = function(self, init_values)
+        if type(init_values) == "number" then
+            self.val = init_values
+        end
+    end
+}
+
+local instance = MyClass:new(20)
+
+try(function() 
+    instance.val = false -- Type-Mismatch caught, this will not be assigned but will raise an error
+end)
+:catch(function(err) 
+    print("ERROR CAUGHT: " .. err:what())
+end):close()
+
+print(instance.val) -- Will print 20 that is the value before the type-mismatch assignment
+
+-------------------------------------------------------------------------
+-- TRY-CATCH with an invalid error-type
+-------------------------------------------------------------------------
 
 try(function() throw(TestError:new()) end):catch(Test, function(err) print(err:what()) end):close() -- this should fail because Test is not a class derived from Caelum.Error
