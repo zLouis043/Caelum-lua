@@ -2406,24 +2406,9 @@ Caelum.Error = Caelum.class("Error"){
 local try_catch_stack = {}
 
 -- Function to throw an error 
-function throww(err)
-    local stack = debug.traceback("", 2)
-    if #try_catch_stack > 0 then
-        err.stack_trace_string = stack
-        error({error = err, is_caelum_error = true})
-    else
-        if type(err) == "table" and getmetatable(err) and getmetatable(err).__class_table then
-            error(err:what().."\n"..stack, 2)
-        else
-            error(tostring(err).."\n"..stack, 2)
-        end
-    end
-end
-
 function throw(err)
     local stack = debug.traceback("", 2)
     if #try_catch_stack > 0 then
-        -- Se l'errore non è una tabella o non ha metatable, convertilo in un Error di Caelum
         if type(err) ~= "table" or not debug.getmetatable(err) then
             err = Caelum.Error:new({msg = tostring(err), stack_trace_string = stack})
         end
@@ -2489,12 +2474,9 @@ function try(try_func)
     table.remove(try_catch_stack)
 
     if not success then
-        --handler._error = err.error
-        --handler._stack = err.stack
         if type(err) == "table" and err.is_caelum_error then
             handler._error = err.error
         else
-            -- Se non è un errore Caelum, convertilo in uno
             handler._error = Caelum.Error:new({msg = tostring(err), stack_trace_string = debug.traceback("", 2)})
         end
     end
@@ -2568,7 +2550,6 @@ function try(try_func)
                 end
 
             else
-                --error({error = self._error, stack = self._stack})
                 if self._is_nested and self._parent_handler and not self._in_catch_block then
                     error({error = self._error, is_caelum_error = true})
                 else
