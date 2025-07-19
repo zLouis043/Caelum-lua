@@ -796,17 +796,15 @@ end
 --[[ Core function for setting a key-value pair in a map, handling validation, rollback, and notifications. ]]
 local function map_set_entry(proxy, key, value)
 
-    if not Caelum._validation_enabled then
-        rawget(proxy, "__map_data__")[key] = value
-        local raw_map = rawget(proxy, "__map_data__")
+    local raw_map = rawget(proxy, "__map_data__")
+
+    if not Caelum._validation_enabled then   
         if raw_map[key] == nil then
             rawset(proxy, "__map_size__", rawget(proxy, "__map_size__") + 1)
         end
         raw_map[key] = value
         return
     end
-
-    local raw_map = rawget(proxy, "__map_data__")
     local key_type_info = rawget(proxy, "__key_type_info__")
     local key_type_name = rawget(proxy, "__key_type_name__")
     local value_type_info = rawget(proxy, "__value_type_info__")
