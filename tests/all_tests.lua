@@ -264,14 +264,14 @@ end)
 local NUM_ITERATIONS = 1000000
 
 TS.performance_test(string.format("Instance Creation (Validation ON) on %d iterations", NUM_ITERATIONS), function()
-    Caelum.setValidationEnabled(true)
+    Caelum.setValidationLevel("strict")
     for i = 1, NUM_ITERATIONS do
         local v = Vector2:new({ x = i, y = -i })
     end
 end)
 
 TS.performance_test(string.format("Field assignments (Validation ON) on %d iterations", NUM_ITERATIONS), function()
-    Caelum.setValidationEnabled(true)
+    Caelum.setValidationLevel("strict")
     local p = Player:new()
     for i = 1, NUM_ITERATIONS do
         p.health = (i % 100)
@@ -279,7 +279,7 @@ TS.performance_test(string.format("Field assignments (Validation ON) on %d itera
 end)
 
 TS.performance_test(string.format("Array Push (Validation ON) on %d iterations", NUM_ITERATIONS), function()
-    Caelum.setValidationEnabled(true)
+    Caelum.setValidationLevel("strict")
     local p = Player:new()
     for i = 1, NUM_ITERATIONS do
         p.inventory:push("item" .. i)
@@ -287,7 +287,7 @@ TS.performance_test(string.format("Array Push (Validation ON) on %d iterations",
 end)
 
 TS.performance_test(string.format("Map Set (Validation ON) on %d iterations", NUM_ITERATIONS), function()
-    Caelum.setValidationEnabled(true)
+    Caelum.setValidationLevel("strict")
     local Scores = Caelum.class "Scores" { points = Caelum.map("string", "int") }
     local s = Scores:new()
     for i = 1, NUM_ITERATIONS do
@@ -297,39 +297,39 @@ end)
 
 
 TS.performance_test(string.format("Instance Creation (Validation OFF) on %d iterations", NUM_ITERATIONS), function()
-    Caelum.setValidationEnabled(false)
+    Caelum.setValidationLevel("none")
     for i = 1, NUM_ITERATIONS do
         local v = Vector2:new({ x = i, y = -i })
     end
-    Caelum.setValidationEnabled(true)
+    Caelum.setValidationLevel("strict")
 end)
 
 TS.performance_test(string.format("Field assignments (Validation OFF) on %d iterations", NUM_ITERATIONS), function()
-    Caelum.setValidationEnabled(false)
+    Caelum.setValidationLevel("none")
     local p = Player:new()
     for i = 1, NUM_ITERATIONS do
         p.health = (i % 100)
     end
-    Caelum.setValidationEnabled(true)
+    Caelum.setValidationLevel("strict")
 end)
 
 TS.performance_test(string.format("Array Push (Validation OFF) on %d iterations", NUM_ITERATIONS), function()
-    Caelum.setValidationEnabled(false)
+    Caelum.setValidationLevel("none")
     local p = Player:new()
     for i = 1, NUM_ITERATIONS do
         p.inventory:push("item" .. i)
     end
-    Caelum.setValidationEnabled(true)
+    Caelum.setValidationLevel("strict")
 end)
 
 TS.performance_test(string.format("Map Set (Validation OFF) on %d iterations", NUM_ITERATIONS), function()
-    Caelum.setValidationEnabled(false)
+    Caelum.setValidationLevel("none")
     local Scores = Caelum.class "Scores" { points = Caelum.map("string", "int") }
     local s = Scores:new()
     for i = 1, NUM_ITERATIONS do
         s.points["player"..i] = i
     end
-    Caelum.setValidationEnabled(true)
+   Caelum.setValidationLevel("strict")
 end)
 
 TS.parse_args(arg or {})

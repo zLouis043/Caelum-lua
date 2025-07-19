@@ -1,5 +1,12 @@
 -- The main table for the Caelum library..
 local Caelum = {}
+
+Caelum._validation_levels = {
+    none = 0,
+    strict = 3
+}
+Caelum._current_validation_level = Caelum._validation_levels.strict
+
 -- A cache for array metatables. This helps to avoid recreating metatables for the same
 -- array type, improving performance. The metatables are weakly referenced ('v' mode),
 -- allowing them to be garbage collected if they are no longer in use.
@@ -67,13 +74,17 @@ local function deep_copy(obj, seen)
     if seen[obj] then
         return seen[obj]
     end
+
+    if next(obj) == nil then
+        return {}
+    end
     
     local copy = {}
     seen[obj] = copy
     
     local mt = getmetatable(obj)
     if mt then
-        setmetatable(copy, deep_copy(mt, seen))
+        setmetatable(copy, mt)
     end
     
     for k, v in pairs(obj) do
@@ -196,6 +207,12 @@ Set the value of the element of an array at that index position.
 @error If element validation, or array-level validation fails.
 ]]
 local function array_set_element(proxy, index, value)
+
+    if not Caelum._validation_enabled then
+        rawget(proxy, "__array_data__")[index] = value
+        return
+    end
+
     local raw_array = rawget(proxy, "__array_data__")
     local element_type_info = rawget(proxy, "__element_type_info__")
     local element_type_name = rawget(proxy, "__element_type_name__")
@@ -366,7 +383,8 @@ local function create_array_proxy(raw_array, element_type_info, element_type_nam
         raw_array = {}
     end
 
-    local cache_key = element_type_name .. (field_meta and field_meta.__field_name_for_validation or "")
+    --local cache_key = element_type_name .. (field_meta and field_meta.__field_name_for_validation or "")
+    local cache_key = element_type_name
 
     local array_mt = array_metatable_cache[cache_key]
     if not array_mt then
@@ -400,6 +418,10 @@ Performs a complete and deep validation of the array.
 @return (table) A list of error messages if validation fails.
 ]]
 function validate_array_completely(proxy)
+    if not Caelum._validation_enabled then
+        return
+    end
+    
     local raw_array = rawget(proxy, "__array_data__")
     local element_type_info = rawget(proxy, "__element_type_info__")
     local element_type_name = rawget(proxy, "__element_type_name__")
@@ -773,6 +795,17 @@ end
 
 --[[ Core function for setting a key-value pair in a map, handling validation, rollback, and notifications. ]]
 local function map_set_entry(proxy, key, value)
+
+    if not Caelum._validation_enabled then
+        rawget(proxy, "__map_data__")[key] = value
+        local raw_map = rawget(proxy, "__map_data__")
+        if raw_map[key] == nil then
+            rawset(proxy, "__map_size__", rawget(proxy, "__map_size__") + 1)
+        end
+        raw_map[key] = value
+        return
+    end
+
     local raw_map = rawget(proxy, "__map_data__")
     local key_type_info = rawget(proxy, "__key_type_info__")
     local key_type_name = rawget(proxy, "__key_type_name__")
@@ -786,16 +819,23 @@ local function map_set_entry(proxy, key, value)
 
     local validated_key, validated_value = validate_and_convert_entry(key, value, key_type_name, key_type_info, value_type_name, value_type_info)
     
+    local old_value_exists = raw_map[validated_key] ~= nil
     local old_value = raw_map[validated_key]
     raw_map[validated_key] = validated_value
+
+    if not old_value_exists then
+        rawset(proxy, "__map_size__", rawget(proxy, "__map_size__") + 1)
+    end
 
     if field_meta and field_meta.validate_fn and Caelum._validation_enabled then
         local pcall_returns = { pcall(field_meta.validate_fn, proxy, parent_instance) }
         if not pcall_returns[1] then
             raw_map[validated_key] = old_value
+            if not old_value_exists then rawset(proxy, "__map_size__", rawget(proxy, "__map_size__") - 1) end
             error("Map validator script error: " .. tostring(pcall_returns[2]))
         elseif not pcall_returns[2] then
             raw_map[validated_key] = old_value
+            if not old_value_exists then rawset(proxy, "__map_size__", rawget(proxy, "__map_size__") - 1) end
             error(string.format("Map validation failed: %s", pcall_returns[3] or "invalid state"))
         end
     end
@@ -843,10 +883,7 @@ local function create_map_metatable(key_type_info, key_type_name, value_type_inf
         end,
 
         __len = function(proxy)
-            local raw_map = rawget(proxy, "__map_data__")
-            local count = 0
-            for _ in pairs(raw_map) do count = count + 1 end
-            return count
+            return rawget(proxy, "__map_size__")
         end,
 
         __pairs = function(proxy)
@@ -862,9 +899,13 @@ local function create_map_metatable(key_type_info, key_type_name, value_type_inf
         end,
 
         __eq = function(proxy_a, proxy_b)
+
             if type(proxy_b) ~= "table" or not rawget(proxy_b, "__map_data__") then return false end
+            if rawget(proxy_a, "__map_size__") ~= rawget(proxy_b, "__map_size__") then return false end
+
             local raw_a = rawget(proxy_a, "__map_data__")
             local raw_b = rawget(proxy_b, "__map_data__")
+
             
             if #proxy_a ~= #proxy_b then return false end
 
@@ -879,7 +920,7 @@ end
 local map_metatable_cache = {}
 
 --[[ Creates a proxy table that wraps a raw Lua table to behave like a typed map. ]]
-create_map_proxy = function(raw_map, key_type_info, key_type_name, value_type_info, value_type_name, field_meta, parent_instance, field_name)
+function create_map_proxy(raw_map, key_type_info, key_type_name, value_type_info, value_type_name, field_meta, parent_instance, field_name)
     if type(raw_map) ~= "table" then raw_map = {} end
 
     local cache_key = key_type_name .. "," .. value_type_name .. (field_meta and field_meta.__field_name_for_validation or "")
@@ -889,8 +930,12 @@ create_map_proxy = function(raw_map, key_type_info, key_type_name, value_type_in
         map_metatable_cache[cache_key] = map_mt
     end
 
+    local size = 0
+    for _ in pairs(raw_map) do size = size + 1 end
+
     local proxy = {
         __map_data__ = raw_map,
+        __map_size__ = size,
         __key_type_info__ = key_type_info,
         __key_type_name__ = key_type_name,
         __value_type_info__ = value_type_info,
@@ -910,6 +955,11 @@ end
 
 --[[ Performs a complete and deep validation of a map proxy. ]]
 function validate_map_completely(proxy)
+
+    if not Caelum._validation_enabled then
+        return 
+    end
+
     local all_errors = {}
     local success, err = pcall(validate_existing_entries, proxy)
     if not success then
@@ -926,13 +976,18 @@ map_remove = function(proxy, key)
 
     local raw_map = rawget(proxy, "__map_data__")
     local old_value = raw_map[validated_key]
-    raw_map[validated_key] = nil
+
+    if old_value ~= nil then
+        raw_map[validated_key] = nil
+        rawset(proxy, "__map_size__", rawget(proxy, "__map_size__") - 1)
+    end
 
     return old_value
 end
 
 map_clear = function(proxy)
     rawset(proxy, "__map_data__", {})
+    rawset(proxy, "__map_size__", 0)
 end
 
 map_keys = function(proxy)
@@ -1072,6 +1127,11 @@ This is used by `__newindex` before assigning a value.
 @return (table) A list of error messages if invalid.
 ]]
 function Caelum.validate_field(instance, field_name, value, field_meta)
+
+    if not Caelum._validation_enabled then
+        return true, {}
+    end
+
     local errors = {}
     
     if field_meta.is_required and (value == nil or (type(value) == "string" and value == "")) then
@@ -1122,6 +1182,11 @@ Also calls the class-level `__validate` method if it exists.
 @return (table) A list of all validation errors.
 ]]
 function Caelum.validate_instance(instance)
+
+    if not Caelum._validation_enabled then
+        return true, {}
+    end
+
     local all_errors = {}
     local class_table = rawget(getmetatable(instance) or {}, "__class_table")
     if not class_table then
@@ -1166,7 +1231,12 @@ local function create_validating_newindex(class_table)
     return function(instance, field_name, value)
 
         if not Caelum._validation_enabled then
-            rawset(instance.__data_storage__ or instance, field_name, value)
+            local data_storage = rawget(instance, "__data_storage__")
+            if not data_storage then
+                data_storage = {}
+                rawset(instance, "__data_storage__", data_storage)
+            end
+            data_storage[field_name] = value
             return
         end
 
@@ -1322,6 +1392,19 @@ local function create_validating_newindex(class_table)
     end
 end
 
+function Caelum.setValidationLevel(level)
+    if type(level) == "string" then
+        level = Caelum._validation_levels[level:lower()] or Caelum._validation_levels.strict
+    end
+    
+    if level == Caelum._current_validation_level then
+        return
+    end
+
+    Caelum._current_validation_level = level
+    Caelum._validation_enabled = level > Caelum._validation_levels.none
+end
+
 --[[
 Creates the `__index` metamethod for a Caelum class/struct.
 This is called when a field is accessed (e.g., `local x = instance.my_field`).
@@ -1379,7 +1462,7 @@ function precompute_class_metadata(class_table)
     if metatable_cache[class_name] then
         return
     end
-    
+
     -- Create and cache the metatable.
     metatable_cache[class_name] = {
         __index = create_validating_index(class_table),
@@ -1432,19 +1515,25 @@ local function instance_constructor(class_table, init_values_from_user)
                 instance[field_name] = init_values_from_user[field_name]
             else
                 local field_type = field_meta.__type
+                local default_value = field_meta.__default_value
+
+                local value_to_assign
+                if type(default_value) == "table" then
+                    value_to_assign = deep_copy(default_value)
+                else
+                    value_to_assign = default_value
+                end
+
                 if (field_type == "struct" or field_type == "class") then
                     local constructor = field_meta.__type_table
-                    local default_value = deep_copy(field_meta.__default_value)
-                    instance[field_name] = safe_construct(constructor, default_value, field_type)
+                    instance[field_name] = safe_construct(constructor, value_to_assign, field_type)
                 elseif field_type == "array" then
-                    local initial_array_values = deep_copy(field_meta.__default_value) or {}
                     local element_type_info = field_meta.__type_table
                     local element_type_name = field_meta.__type_name
-                    instance[field_name] = create_array_proxy(initial_array_values, element_type_info, element_type_name, field_meta, instance, field_name)
+                    instance[field_name] = create_array_proxy(value_to_assign, element_type_info, element_type_name, field_meta, instance, field_name)
                 elseif field_type == "map" then
-                    local initial_map_values = deep_copy(field_meta.__default_value) or {}
                     instance[field_name] = create_map_proxy(
-                        initial_map_values,
+                        value_to_assign,
                         field_meta.__key_type_table,
                         field_meta.__key_type_name,
                         field_meta.__value_type_table,
@@ -1454,7 +1543,7 @@ local function instance_constructor(class_table, init_values_from_user)
                         field_name
                     )
                 else
-                    instance[field_name] = deep_copy(field_meta.__default_value)
+                    instance[field_name] = value_to_assign
                 end
             end
         end
@@ -1759,8 +1848,6 @@ function Caelum.class(name, base_class)
             end
 
             setmetatable(class_table, { __index = base_class.__class_table })
-
-            --class_table.super = base_class.__init or function(self, init_values) end
             
             if base_class.__class_table.__init then
                 class_table.super = function(self, init_values)
