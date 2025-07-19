@@ -1194,7 +1194,7 @@ local function create_validating_newindex(class_table)
 
             if is_nullable and value == nil then
                 type_mismatch = false
-            elseif (expected_type == "struct" or expected_type == "class") and value_type == "table" then
+            elseif expected_type == "struct" and value_type == "table" then
                 local value_mt = getmetatable(value)
                 local is_caelum_instance = value_mt and rawget(value_mt, "__class_table") ~= nil
                 if not is_caelum_instance then
@@ -1208,6 +1208,22 @@ local function create_validating_newindex(class_table)
                     if actual_type_display ~= expected_type_name then
                         type_mismatch = true 
                     end 
+                end
+            elseif expected_type == "class" and value_type == "table" then
+                local value_mt = getmetatable(value)
+                local is_caelum_instance = value_mt and rawget(value_mt, "__class_table") ~= nil
+                if not is_caelum_instance then
+                    local constructor = field_meta_table.__type_table 
+
+                    type_mismatch = not Caelum.issubclass(constructor, field_meta_table.__type_table)
+
+                    if not type_mismatch then 
+                        value = safe_construct(constructor, value, expected_type)
+                    end
+                end
+
+                if value and not type_mismatch then
+                    type_mismatch = not Caelum.instanceof(value, field_meta_table.__type_table)
                 end
 
             elseif expected_type == "array" and value_type == "table" then
