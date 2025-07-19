@@ -2496,15 +2496,24 @@ function Caelum.deserialize(data)
             if not constructor or not constructor.new then
                 error("Deserialization failed: Type '" .. type_name .. "' is not registered or has no .new() method.")
             end
+            
+            local instance = {}
+            rawset(instance, "__is_constructing", true)
+            rawset(instance, "__data_storage__", {})
 
-            local init_values = {}
+            local class_table = constructor.__class_table
+            setmetatable(instance, get_cached_metatable(class_table))
             if sub_data.data then
-                for k, v in pairs(sub_data.data) do
-                    init_values[k] = deserialize_recursive(v)
+                for field_name, field_value in pairs(sub_data.data) do
+                    local deserialized_value = deserialize_recursive(field_value)
+                    rawget(instance, "__data_storage__")[field_name] = deserialized_value
                 end
             end
-            
-            return constructor.new(init_values)
+
+            rawset(instance, "__is_constructing", nil)
+            return instance
+        elseif rawget(sub_data, "__is_cycle") then
+            return sub_data.ref
         else
             local result = {}
             local is_array_like = true

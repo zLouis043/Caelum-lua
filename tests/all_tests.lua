@@ -34,6 +34,38 @@ local Player = Caelum.class("Player", Entity) {
     inventory = Caelum.array("string")
 }
 
+local Colors = Caelum.enum("Colors", { "Red", "Green", "Blue" }, { default = "Red" })
+
+local GrandParent = Caelum.class "GrandParent" {
+    gp_val = Caelum.int(1),
+    get_value = function(self) return self.gp_val end
+}
+    
+local Parent = Caelum.class("Parent", GrandParent) {
+    p_val = Caelum.int(2),
+    get_value = function(self) return self.p_val end
+}
+
+local Child = Caelum.class("Child", Parent) {
+    c_val = Caelum.int(3),
+    get_value = function(self) return self.c_val end
+}
+
+local Animal = Caelum.class "Animal" {
+    name = Caelum.string("")
+}
+
+local Dog = Caelum.class("Dog", Animal) {
+    bark = function(self) return "Woof!" end
+}
+
+local Cat = Caelum.class("Cat", Animal) {
+    meow = function(self) return "Meow!" end
+}
+
+local Zoo = Caelum.class "Zoo" {
+    animal = Caelum.field(Animal, nil).nullable()
+}
 
 -- =============================================================================
 -- UNIT TESTS
@@ -63,11 +95,52 @@ TS.unit_test("Default values", function()
     assert_equal(player.position.x, 0.0)
 end)
 
+TS.unit_test("Enum: Basic operations", function()
+    local Test = Caelum.class "Test" {
+        color = Caelum.field(Colors)
+    }
+
+    local test = Test:new()
+    
+    assert_equal(test.color, "Red")
+    assert_equal(Colors.get_index("Green"), 2)
+    assert_equal(Colors.get_next("Green"), "Blue")
+    assert_equal(Colors.get_next("Blue"), "Red")
+end)
+
+TS.unit_test("Enum: Validation", function()
+    local Test = Caelum.class "Test" {
+        color = Caelum.field(Colors)
+    }
+
+    local test = Test:new()
+    
+    assert_throws(function() test.color = "Yellow" end, "Should reject invalid enum value")
+end)
+
 TS.unit_test("Inheritance'", function()
     local player = Player:new({ id = 123, position = { x = 10, y = 20 } })
     assert_equal(player.id, 123)
     assert_equal(player.position.x, 10) 
     assert_equal(Caelum.get_name(player), "Player")
+end)
+
+
+    
+TS.unit_test("Inheritance: Method overriding", function()
+    
+    local b = Parent:new{ p_val = 5 }
+    local d = Child:new{ c_val = 10 }
+    
+    assert_equal(b:get_value(), 5)
+    assert_equal(d:get_value(), 10)
+end)
+
+TS.unit_test("Inheritance: Multiple levels", function()    
+    local c = Child:new()
+    assert_equal(c.gp_val, 1)
+    assert_equal(c.p_val, 2)
+    assert_equal(c.c_val, 3)
 end)
 
 TS.unit_test("Type Checking: Correct types", function()
@@ -83,6 +156,18 @@ TS.unit_test("Type Checking: Type errors", function()
     assert_throws(function() p.health = "full" end, "Should fail on assigning string to int")
     assert_throws(function() p.name = 12345 end, "Should fail on assigning number to string")
     assert_throws(function() p.position = { x = "a", y = "b" } end, "Should fail on assigning string to float in the struct")
+end)
+
+TS.unit_test("Type Validation: Polymorphic field assignment", function()
+    
+    local zoo = Zoo:new()
+    zoo.animal = Dog:new{ name = "Fido" }
+    assert_true(Caelum.instanceof(zoo.animal, Dog))
+    
+    zoo.animal = Cat:new{ name = "Whiskers" }
+    assert_true(Caelum.instanceof(zoo.animal, Cat))
+    
+    assert_throws(function() zoo.animal = "Not an animal" end, "Should reject non-animal types")
 end)
 
 TS.unit_test("Validation: Range (min/max)", function()
@@ -120,6 +205,36 @@ TS.unit_test("Validation: Custom Validator", function()
     local t = TestValidator:new()
     t.name = "abc"
     assert_throws(function() t.name = "ab" end, "Custom validator should fail")
+end)
+
+TS.unit_test("Error Handling: Basic try-catch", function()
+    local success, err = pcall(function()
+        try(function()
+            throw("Test error")
+        end):catch(function(e)
+            error("Caught and rethrown")
+        end):close()
+    end)
+
+    assert_false(success)
+    assert_contains(err.error.msg, "Caught and rethrown")
+end)
+
+TS.unit_test("Error Handling: Custom error classes", function()
+    local MyError = Caelum.class("MyError", Caelum.Error) {
+        code = Caelum.int(0)
+    }
+    
+    local success, err = pcall(function()
+        try(function()
+            throw(MyError:new({"Test", 123}))
+        end):catch(MyError, function(e)
+            assert_equal(e.code, 123)
+            assert_equal(e.msg, "Test")
+        end)
+    end)
+    
+    assert_true(success)
 end)
 
 TS.unit_test("Auto Conversion from table to struct/class", function()
@@ -257,10 +372,66 @@ TS.unit_test("Reflection: get_type e get_name", function()
     assert_equal(Caelum.get_name(v), "Vector2")
 end)
 
+TS.unit_test("Reflection: Instance information", function()    
+    local t = Player:new()
+    assert_equal(Caelum.get_name(t), "Player")
+    assert_equal(Caelum.get_type(t), "class")
+    assert_true(Caelum.instanceof(t, Player))
+end)
+
+TS.unit_test("Serialization: Basic struct", function()    
+    local v = Vector2:new({ x = 1.5, y = 2.5 })
+
+    local serialized = Caelum.serialize(v)
+    local deserialized = Caelum.deserialize(serialized)
+
+    assert_equal(deserialized.x, 1.5)
+    assert_equal(deserialized.y, 2.5)
+    assert_equal(Caelum.get_name(deserialized), "Vector2")
+end)
+
+TS.unit_test("Serialization: Class with inheritance", function()    
+    local d = Child:new{ c_val = 10, p_val = 20}
+
+    local serialized = Caelum.serialize(d)
+    local deserialized = Caelum.deserialize(serialized)
+
+    assert_equal(deserialized.c_val, 10)
+    assert_equal(deserialized.p_val, 20)
+    assert_true(Caelum.instanceof(deserialized, Child))
+end)
+
+TS.unit_test("Switch Statement: Basic functionality", function()
+    local result
+    local case = 2
+    
+    switch(case) {
+        [1] = function() result = "one" end,
+        [2] = function() result = "two" end,
+        [3] = function() result = "three" end,
+        default = function() result = "unknown" end
+    }
+    
+    assert_equal(result, "two")
+end)
+
+TS.unit_test("Switch Statement: Default case", function()
+    local result
+    local case = 5
+    
+    switch(case) {
+        [1] = function() result = "one" end,
+        [2] = function() result = "two" end,
+        default = function() result = "default" end
+    }
+    
+    assert_equal(result, "default")
+end)
 
 -- =============================================================================
 -- PERFORMANCE TESTS
 -- =============================================================================
+
 local NUM_ITERATIONS = 1000000
 
 TS.performance_test(string.format("Instance Creation (Validation ON) on %d iterations", NUM_ITERATIONS), function()
@@ -295,6 +466,15 @@ TS.performance_test(string.format("Map Set (Validation ON) on %d iterations", NU
     end
 end)
 
+TS.performance_test(string.format("Serialization/Deserialization (Validation ON) on %d iterations", NUM_ITERATIONS/10), function()
+    Caelum.setValidationLevel("strict")
+    local v = Vector2:new{ x = 1.5, y = 2.5 }
+    
+    for i = 1, NUM_ITERATIONS do
+        local serialized = Caelum.serialize(v)
+        local deserialized = Caelum.deserialize(serialized)
+    end
+end)
 
 TS.performance_test(string.format("Instance Creation (Validation OFF) on %d iterations", NUM_ITERATIONS), function()
     Caelum.setValidationLevel("none")
@@ -331,6 +511,21 @@ TS.performance_test(string.format("Map Set (Validation OFF) on %d iterations", N
     end
    Caelum.setValidationLevel("strict")
 end)
+
+TS.performance_test(string.format("Serialization/Deserialization (Validation OFF) on %d iterations", NUM_ITERATIONS/10), function()
+    Caelum.setValidationLevel("none")
+    local v = Vector2:new{ x = 1.5, y = 2.5 }
+    
+    for i = 1, NUM_ITERATIONS do
+        local serialized = Caelum.serialize(v)
+        local deserialized = Caelum.deserialize(serialized)
+    end
+    Caelum.setValidationLevel("strict")
+end)
+
+-- =============================================================================
+-- RUN TESTS
+-- =============================================================================
 
 TS.parse_args(arg or {})
 TS.run_all()
